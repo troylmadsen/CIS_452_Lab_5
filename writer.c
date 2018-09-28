@@ -7,6 +7,7 @@
 
 #define MAX_CHARS 4096
 #define NUM_READERS 2
+#define NUM_SEGMENTS 3
 
 /*
  * Writes messages to a shared memory segments.
@@ -21,16 +22,12 @@ void set_shm_segment();
 void* malloc_shared( int size, key_t key );
 void set_signal_handlers();
 static void sig_handler( int signum, siginfo_t* siginfo, void* context );
+void detach_shared();
 
 /* Globals */
 
 /* Shared memory segment for memory segment addresses */
 void** shm_segment;
-int num_shm_segments = 4;
-
-/* Shared memory segment for constants */
-int* shm_constants;
-int num_constants = 2;
 
 /* Shared memory segment for message */
 char* shm_message;
@@ -96,24 +93,18 @@ void set_shm_segment() {
 	key_t key = ftok( path, proj_id );
 
 	/* Allocate shared memory segment for memory segment addresses */
-	shm_segment = (void**)malloc_shared( num_shm_segments * sizeof( void* ), key );
-
-	/* Allocates shared memory segment for constants */
-	shm_segment[0] = malloc_shared( num_constants * sizeof( int ), IPC_PRIVATE );
-	shm_constants = (int*)shm_segment[0];
-	shm_constants[0] = MAX_CHARS;
-	shm_constants[1] = NUM_READERS;
+	shm_segment = (void**)malloc_shared( NUM_SEGMENTS * sizeof( void* ), key );
 
 	/* Allocate shared memory segment for messages */
-	shm_segment[1] = malloc_shared( MAX_CHARS * sizeof( char ), IPC_PRIVATE );
+	shm_segment[0] = malloc_shared( MAX_CHARS * sizeof( char ), IPC_PRIVATE );
 	shm_message = (char*)shm_segment[1];
 
 	/* Allocate shared memory segment for flags */
-	shm_segment[2] = malloc_shared( NUM_READERS * sizeof( int ), IPC_PRIVATE );
+	shm_segment[1] = malloc_shared( NUM_READERS * sizeof( int ), IPC_PRIVATE );
 	shm_flags = (int*)shm_segment[2];
 
 	/* Allocate shared memory segment for PIDs */
-	shm_segment[3] = malloc_shared( ( NUM_READERS + 1 ) * sizeof( pid_t ), IPC_PRIVATE );
+	shm_segment[2] = malloc_shared( ( NUM_READERS + 1 ) * sizeof( pid_t ), IPC_PRIVATE );
 	shm_pids = (pid_t*)shm_segment[3];
 }
 
@@ -178,12 +169,43 @@ static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
 		}
 
 		printf( "Shutting down\n" );
+
+		detach_shared();
+
 		exit( 0 );
 	}
 
 	/* We are told to shut down */
 	if ( signum == SIGUSR1 ) {
 		printf( "\nShutting down\n" );
+
+		detach_shared();
+
 		exit( 0 );
+	}
+}
+
+/*
+ * Detaches from all shared memory segments.
+ */
+void detach_shared() {
+	/* Detach from shared memory segment for message */
+	if ( shmdt( shm_message ) == -1 ) {
+		perror( "Shared memory segment message detach failure\n" );
+	}
+	
+	/* Detach from shared memory segment for flags */
+	if ( shmdt( shm_flags ) == -1 ) {
+		perror( "Shared memory segment flags detach failure\n" );
+	}
+
+	/* Detach from shared memory segment for pids */
+	if ( shmdt( shm_pids ) == -1 ) {
+		perror( "Shared memory segment pids detach failure\n" );
+	}
+
+	/* Detach from shared memory segment for segments */
+	if ( shmdt( shm_segment ) == -1 ) {
+		perror( "Shared memory segment segment detach failure\n" );
 	}
 }
