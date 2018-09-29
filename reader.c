@@ -1,4 +1,6 @@
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -67,8 +69,23 @@ void set_shm_segment() {
 	int proj_id = 1;
 	key_t key = ftok( path, proj_id );
 
+	/* Memory segment ID */
+	int shm_id;
+
+	/* Address of memory segment */
+	void* return_ptr;
+
 	/* Retrieve shared memory segment for memory segment addresses */
-	shm_segment = shmget( key, 0, 0 );
+	if ( ( shm_id = shmget( key, 0, 0 ) ) < 0 ) {
+		perror( "Shared memory retrieval failure" );
+		exit( 1 );
+	}
+
+	/* Attach to the shared memory segment */
+	if ( ( return_ptr = (void*)shmat( shm_id, 0, 0 ) ) == (void*)-1 ) {
+		perror( "Shared memory attach failure" );
+		exit( 1 );
+	}
 
 	/* Retrieve shared memory segment for messages */
 	shm_message = (char*)shm_segment[0];
@@ -78,6 +95,26 @@ void set_shm_segment() {
 
 	/* Retrieve shared memory segment for PIDs */
 	shm_pids = (pid_t*)shm_segment[2];
+}
+
+/* FIXME */
+void set_signal_handlers() {
+	/* Signal handlers */
+	struct sigaction sa;
+
+	sigemptyset( &sa.sa_mask );
+	sa.sa_flags = SA_SIGINFO;
+	sa.sa_sigaction = &sig_handler;
+
+	if ( sigaction( SIGINT, &sa, NULL ) == -1 ) {
+		perror( "sigaction failure" );
+		exit( 1 );
+	}
+
+	if ( sigaction( SIGUSR1, &sa, NULL ) == -1 ) {
+		perror( "sigaction failure" );
+		exit( 1 );
+	}
 }
 
 /*

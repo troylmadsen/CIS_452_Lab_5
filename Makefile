@@ -1,4 +1,4 @@
-r_filname = reader
+r_filename = reader
 w_filename = writer
 r_objects = reader.o
 w_objects = writer.o
