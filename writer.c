@@ -1,6 +1,6 @@
 #include <signal.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -117,7 +117,7 @@ void* malloc_shared( int size, key_t key ) {
 	void* return_ptr;
 
 	/* Allocate shared memory */
-	if ( (shm_id = shmget( key, size, ( S_IRUSR | S_IWUSR ) ) ) < 0 ) {
+	if ( ( shm_id = shmget( key, size, ( S_IRUSR | S_IWUSR ) ) ) < 0 ) {
 		perror( "Shared memory allocation failure" );
 		exit( 1 );
 	}
