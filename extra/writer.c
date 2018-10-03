@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,7 +7,7 @@
 #include <unistd.h>
 
 #define MAX_CHARS 4096
-#define NUM_READERS 2
+#define NUM_MEMBERS 2
 #define NUM_SEGMENTS 3
 #define PATH "./writer.c"
 #define PROJ_ID 1
@@ -21,11 +22,13 @@
 
 /* Prototypes */
 void set_shm_segment();
+void get_number();
 void* malloc_shared( int size, key_t key );
 void set_signal_handlers();
 static void sig_handler( int signum, siginfo_t* siginfo, void* context );
 void detach_shared();
 void message();
+void read_messages();
 
 /* Globals */
 
@@ -45,12 +48,18 @@ int* shm_flags;
 /* Shared memory segment for PIDS */
 pid_t* shm_pids;
 
+/* Number of this reader */
+int reader_num = -1;
+
 /*
  * Sends messages to listening readers.
  */
 int main() {
 	/* Set size of shared memory segment */
-	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_READERS * sizeof( int ) ) + ( (NUM_READERS + 1) * sizeof( pid_t ) );
+	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_MEMBERS * sizeof( int ) ) + ( (NUM_MEMBERS + 1) * sizeof( pid_t ) );
+
+	/* Get reader number */
+	get_number();
 
 	/* Set up shared memory segment */
 	set_shm_segment();
@@ -61,8 +70,9 @@ int main() {
 	/* Set up signal handlers */
 	set_signal_handlers();
 
+	//FIXME
 	/* Set read flags */
-	for ( int i = 0; i < NUM_READERS; i++ ) {
+	for ( int i = 0; i < NUM_MEMBERS; i++ ) {
 		shm_flags[i] = 1;
 	}
 
@@ -89,7 +99,7 @@ void set_shm_segment() {
 	shm_flags = (int*)( shm_message + ( MAX_CHARS * sizeof( char ) ) );
 
 	/* Get address for PIDs */
-	shm_pids = (pid_t*)( shm_flags + ( NUM_READERS * sizeof( int ) ) );
+	shm_pids = (pid_t*)( shm_flags + ( NUM_MEMBERS * sizeof( int ) ) );
 }
 
 /*
@@ -106,7 +116,7 @@ void* malloc_shared( int size, key_t key ) {
 	pid_t* return_ptr;
 
 	/* Allocate shared memory */
-	if ( ( shm_id = shmget( key, size, ( IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR ) ) ) < 0 ) {
+	if ( ( shm_id = shmget( key, size, ( IPC_CREAT | S_IRUSR | S_IWUSR ) ) ) < 0 ) {
 		perror( "Shared memory allocation failure" );
 		exit( 1 );
 	}
@@ -156,12 +166,18 @@ static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
 	/* Shut down others */
 	if ( signum == SIGINT ) {
 		printf( "\nSignalling others to shut down\n" );
-		for ( int i = 1; i < NUM_READERS + 1; i++ ) {
-			kill( shm_pids[i], SIGUSR1 );
+		for ( int i = 0; i < NUM_MEMBERS + 1; i++ ) {
+			if ( i != reader_num ) {
+				kill( shm_pids[i], SIGUSR1 );
+			}
 		}
 
 		printf( "Shutting down\n" );
+	
+		/* Set memory to be removed upon program termination */
+		shmctl( remove_id, IPC_RMID, (struct shmid_ds *)NULL );
 
+		/* Detach from shared memory segment */
 		detach_shared();
 
 		exit( 0 );
@@ -185,13 +201,10 @@ void detach_shared() {
 	if ( shmdt( shm_segment ) == -1 ) {
 		perror( "Shared memory segment segment detach failure\n" );
 	}
-
-	/* Set memory to be removed upon program termination */
-	shmctl( remove_id, IPC_RMID, (struct shmid_ds *)NULL );
 }
 
 /*
- * continually reads user input and sends message to readers.
+ * Continually reads user input and sends message to readers.
  */
 void message() {
 	char* input;
@@ -214,7 +227,7 @@ void message() {
 		all_read = 0;
 		while ( !all_read ) {
 			all_read = 1;
-			for ( i = 0; i < NUM_READERS; i++ ) {
+			for ( i = 0; i < NUM_MEMBERS; i++ ) {
 				all_read = all_read & shm_flags[i];
 			}
 		}
@@ -223,8 +236,24 @@ void message() {
 		strcpy( shm_message, input );
 
 		/* Set reader flags */
-		for ( i = 0; i < NUM_READERS; i++ ) {
+		for ( i = 0; i < NUM_MEMBERS; i++ ) {
 			shm_flags[i] = 0;
 		}
+	}
+}
+
+
+void read_messages() {
+	/* Run until shut down */
+	while ( 1 ) {
+
+		/* Wait for message */
+		while ( shm_flags[reader_num - 1] );
+
+		/* Read message */
+		printf( "%s\n", shm_message );
+
+		/* Set flag indicating message read */
+		shm_flags[reader_num - 1] = 1;
 	}
 }

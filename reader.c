@@ -187,6 +187,9 @@ void detach_shared() {
 	}
 }
 
+/*
+ * Reads messages from writers.
+ */
 void read_messages() {
 	/* Run until shut down */
 	while ( 1 ) {
