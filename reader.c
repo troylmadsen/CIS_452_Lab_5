@@ -8,9 +8,11 @@
 #define MAX_CHARS 4096
 #define NUM_READERS 2
 #define NUM_SEGMENTS 3
+#define PATH "./writer.c"
+#define PROJ_ID 1
 
 /*
- * Awaits messages stored to a shared memory segments.
+ * Awaits messages stored to a shared memory segment.
  * @Version 1.0
  * @Author Troy Madsen
  * @Author Tim DeVries
@@ -18,20 +20,21 @@
  */
 
 /* Prototypes */
+void new_shm();
 void set_shm_segment();
+void get_number();
 void set_signal_handlers();
 static void sig_handler( int signum, siginfo_t* siginfo, void* context );
 void detach_shared();
+void read_messages();
 
 /* Globals */
 
-/* Shared memory segment for memory segment addresses */
-void** shm_segment;
-int num_shm_segments = 4;
+/* Size of shared memory */
+int shm_size;
 
-/* Shared memory segment for constants */
-int* shm_constants;
-int num_constants = 2;
+/* Shared memory segment for memory segment addresses */
+char* shm_segment;
 
 /* Shared memory segment for message */
 char* shm_message;
@@ -43,15 +46,20 @@ int* shm_flags;
 pid_t* shm_pids;
 
 /* Number of this reader */
-int reader_num;
+int reader_num = -1;
 
 /* FIXME */
 int main() {
+	/* Set size of shared memory segment */
+	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_READERS * sizeof( int ) ) + ( (NUM_READERS + 1) * sizeof( pid_t ) );
+
 	/* Set up shared memory segment */
 	set_shm_segment();
+	
+	//new_shm();
 
 	/* Get reader number */
-	//FIXME
+	get_number();
 
 	/* Store my PID for others */
 	shm_pids[reader_num] = getpid();
@@ -59,43 +67,82 @@ int main() {
 	/* Set up signal handlers */
 	set_signal_handlers();
 
-	//FIXME
+	/* Read messages from writer */
+	read_messages();
+}
+
+void new_shm() {
+	key_t key = ftok( PATH, PROJ_ID );
+	int shm_id;
+
+	if ( (shm_id = shmget(key, 4096, S_IRUSR | S_IWUSR)) < 0 ) {
+		perror("1\n");
+		exit(1);
+	}
+
+	if ( (shm_segment = shmat(shm_id,0,0)) == (void*)-1 ) {
+		perror("2\n");
+		exit(1);
+	}
+
+	sleep(10);
+
+	printf("%s\n", shm_segment);
+
+	shmdt(shm_segment);
 }
 
 /* FIXME */
 void set_shm_segment() {
 	/* Create shared memory segment ID */
-	char* path = "./writer.c";
-	int proj_id = 1;
-	key_t key = ftok( path, proj_id );
+	key_t key = ftok( PATH, PROJ_ID );
+	//FIXME
+	printf("%d\n", key);
 
 	/* Memory segment ID */
 	int shm_id;
 
 	/* Address of memory segment */
-	void* return_ptr;
+	char* return_ptr;
 
-	/* Retrieve shared memory segment for memory segment addresses */
-	if ( ( shm_id = shmget( key, 0, 0 ) ) < 0 ) {
-		perror( "Shared memory retrieval failure" );
+	/* Retreive shared memory segment for communication */
+	if ( ( shm_id = shmget( key, shm_size, ( S_IRUSR | S_IWUSR ) ) ) < 0 ) {
+		perror( "Shared memory allocation failure" );
 		exit( 1 );
 	}
 
 	/* Attach to the shared memory segment */
-	if ( ( return_ptr = (void*)shmat( shm_id, 0, 0 ) ) == (void*)-1 ) {
+	if ( ( return_ptr = (char*)shmat( shm_id, NULL, 0 ) ) == (void*)-1 ) {
 		perror( "Shared memory attach failure" );
 		exit( 1 );
 	}
 
-	/* Retrieve shared memory segment for messages */
-	shm_message = (char*)shm_segment[0];
+	/* Set shared memory address */
+	shm_segment = return_ptr;
 
-	/* Retrieve shared memory segment for flags */
-	shm_flags = (int*)shm_segment[1];
+	/* Get address for message */
+	shm_message = (char*)( shm_segment + 0 );
 
-	/* Retrieve shared memory segment for PIDs */
-	shm_pids = (pid_t*)shm_segment[2];
+	/* Get address for flags */
+	shm_flags = (int*)( shm_message + ( MAX_CHARS * sizeof( char ) ) );
+
+	/* Get address for PIDs */
+	shm_pids = (pid_t*)( shm_flags + ( NUM_READERS * sizeof( int ) ) );
 }
+
+/*
+ * Gets the number of this reader from the user.
+ */
+void get_number() {
+	/* Get reader number from user */
+	char input[16];
+	while ( 1 > reader_num || reader_num > NUM_READERS ) {
+		printf( "Enter reader number (1 - %d): ", NUM_READERS );
+		fgets( input, 16, stdin );
+		reader_num = atoi( input );
+	}
+}
+
 
 /* FIXME */
 void set_signal_handlers() {
@@ -126,9 +173,9 @@ void set_signal_handlers() {
 static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
 	/* Shut down others */
 	if ( signum == SIGINT ) {
-		printf( "\nSignalling other to shut down\n" );
+		printf( "\nSignalling others to shut down\n" );
 		for ( int i = 0; i < NUM_READERS + 1; i++ ) {
-			if ( i == reader_num ) {
+			if ( i != reader_num ) {
 				kill( shm_pids[i], SIGUSR1 );
 			}
 		}
@@ -154,23 +201,23 @@ static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
  * Detaches from all shared memory segments.
  */
 void detach_shared() {
-	/* Detach from shared memory segment for message */
-	if ( shmdt( shm_message ) == -1 ) {
-		perror( "Shared memory segment message detach failure\n" );
-	}
-	
-	/* Detach from shared memory segment for flags */
-	if ( shmdt( shm_flags ) == -1 ) {
-		perror( "Shared memory segment flags detach failure\n" );
-	}
-
-	/* Detach from shared memory segment for pids */
-	if ( shmdt( shm_pids ) == -1 ) {
-		perror( "Shared memory segment pids detach failure\n" );
-	}
-
 	/* Detach from shared memory segment for segments */
 	if ( shmdt( shm_segment ) == -1 ) {
 		perror( "Shared memory segment segment detach failure\n" );
+	}
+}
+
+void read_messages() {
+	/* Run until shut down */
+	while ( 1 ) {
+
+		/* Wait for message */
+		while ( shm_flags[reader_num - 1] );
+
+		/* Read message */
+		printf( "%s\n", shm_message );
+
+		/* Set flag indicating message read */
+		shm_flags[reader_num - 1] = 1;
 	}
 }

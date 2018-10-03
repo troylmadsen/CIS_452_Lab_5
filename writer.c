@@ -5,9 +5,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <string.h>
+
 #define MAX_CHARS 4096
 #define NUM_READERS 2
 #define NUM_SEGMENTS 3
+#define PATH "./writer.c"
+#define PROJ_ID 1
 
 /*
  * Writes messages to a shared memory segments.
@@ -18,16 +22,22 @@
  */
 
 /* Prototypes */
+void new_shm();
 void set_shm_segment();
 void* malloc_shared( int size, key_t key );
 void set_signal_handlers();
 static void sig_handler( int signum, siginfo_t* siginfo, void* context );
 void detach_shared();
+void message();
 
 /* Globals */
 
+/* Size of shared memory */
+int shm_size;
+
 /* Shared memory segment for memory segment addresses */
-void** shm_segment;
+char* shm_segment;
+int remove_id;
 
 /* Shared memory segment for message */
 char* shm_message;
@@ -38,10 +48,17 @@ int* shm_flags;
 /* Shared memory segment for PIDS */
 pid_t* shm_pids;
 
-/*FIXME */
+/*
+ * Creates a shared memory segment to store message and reads input.
+ */
 int main() {
+	/* Set size of shared memory segment */
+	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_READERS * sizeof( int ) ) + ( (NUM_READERS + 1) * sizeof( pid_t ) );
+
 	/* Set up shared memory segment */
 	set_shm_segment();
+	
+	//new_shm();
 
 	/* Store my PID for others */
 	shm_pids[0] = getpid();
@@ -49,92 +66,100 @@ int main() {
 	/* Set up signal handlers */
 	set_signal_handlers();
 
-	/* Getting and sending input to readers */
-	char* input;
-	int not_read;
-	while ( 1 ) {
-		/* Get user input */
-		input = (char *)malloc( MAX_CHARS * sizeof( char * ) );
-		printf( ">" );
-		fgets( input, MAX_CHARS, stdin );
-
-		/* Trim \n off input */
-		int i = 0;
-		while ( input[i++] != '\n' );
-		input[i - 1] = '\0';
-
-		/* Wait until previous message read by all readers */
-		/* Reset not_read */
-		not_read = 0;
-
-		while ( not_read ) {
-			for ( i = 0; i < NUM_READERS; i++ ) {
-				not_read = not_read | shm_flags[i];
-			}
-		}
-
-		/* Set reader flags */
-		for ( i = 0; i < NUM_READERS; i++ ) {
-			shm_flags[i] = 1;
-		}
-
-		/* Write message to shared memory segment */
-		shm_message = input;
+	/* Set read flags */
+	for ( int i = 0; i < NUM_READERS; i++ ) {
+		shm_flags[i] = 1;
 	}
+
+	/* Sending message to readers */
+	message();
 
 	return 0;
 }
 
-/* FIXME */
-void set_shm_segment() {
-	/* Create shared memory segment ID */
-	char* path = "./writer.c";
-	int proj_id = 1;
-	key_t key = ftok( path, proj_id );
+void new_shm() {
+	key_t key = ftok( PATH, PROJ_ID );
+	int shm_id;
 
-	/* Allocate shared memory segment for memory segment addresses */
-	shm_segment = (void**)malloc_shared( NUM_SEGMENTS * sizeof( void* ), key );
+	if ( (shm_id = shmget(key, 4096, IPC_CREAT | S_IRUSR | S_IWUSR)) < 0 ) {
+		perror("1\n");
+		exit(1);
+	}
 
-	/* Allocate shared memory segment for messages */
-	shm_segment[0] = malloc_shared( MAX_CHARS * sizeof( char ), IPC_PRIVATE );
-	shm_message = (char*)shm_segment[1];
+	if ( (shm_segment = shmat(shm_id,0,0)) == (void*)-1 ) {
+		perror("2\n");
+		exit(1);
+	}
 
-	/* Allocate shared memory segment for flags */
-	shm_segment[1] = malloc_shared( NUM_READERS * sizeof( int ), IPC_PRIVATE );
-	shm_flags = (int*)shm_segment[2];
+	sleep(5);
 
-	/* Allocate shared memory segment for PIDs */
-	shm_segment[2] = malloc_shared( ( NUM_READERS + 1 ) * sizeof( pid_t ), IPC_PRIVATE );
-	shm_pids = (pid_t*)shm_segment[3];
+	/* Set memory to be removed upon program termination */
+	shmctl( shm_id, IPC_RMID, NULL );
+
+	memcpy(shm_segment, "Hello World", 11);
+
+	sleep(10);
+
+	shmdt(shm_segment);
 }
 
-/* FIXME */
+/*
+ * Creates a shared memory segment and additional segments for all processes to communicate.
+ */
+void set_shm_segment() {
+	/* Create similar key between processes */
+	key_t key = ftok( PATH, PROJ_ID );
+	//FIXME
+	printf("%d\n", key);
+
+	/* Allocate shared memory segment for communication */
+	shm_segment = (char*)malloc_shared( shm_size, key );
+
+	/* Get address for message */
+	shm_message = (char*)( shm_segment + 0 );
+
+	/* Get address for flags */
+	shm_flags = (int*)( shm_message + ( MAX_CHARS * sizeof( char ) ) );
+
+	/* Get address for PIDs */
+	shm_pids = (pid_t*)( shm_flags + ( NUM_READERS * sizeof( int ) ) );
+}
+
+/*
+ * Allocates a shared memory segment of the specified size in bytes.
+ * @param size Number of bytes to allocate of shared memory.
+ * @param key Key identifier of the shared memory segment.
+ * @return The address of the shared memory segment.
+ */
 void* malloc_shared( int size, key_t key ) {
 	/* Memory segment ID */
 	int shm_id;
 
 	/* Address of memory segment */
-	void* return_ptr;
+	pid_t* return_ptr;
 
 	/* Allocate shared memory */
-	if ( ( shm_id = shmget( key, size, ( S_IRUSR | S_IWUSR ) ) ) < 0 ) {
+	if ( ( shm_id = shmget( key, size, ( IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR ) ) ) < 0 ) {
 		perror( "Shared memory allocation failure" );
 		exit( 1 );
 	}
+	printf( "Created shared memory segment ID: %d\n", shm_id );
 
 	/* Attach to the shared memory segment */
-	if ( ( return_ptr = (void*)shmat( shm_id, 0, 0 ) ) == (void*)-1 ) {
+	if ( ( return_ptr = (void*)shmat( shm_id, NULL, 0 ) ) == (void*)-1 ) {
 		perror( "Shared memory attach failure" );
 		exit( 1 );
 	}
 
-	/* Set memory to be removed upon program termination */
-	shmctl( shm_id, IPC_RMID, NULL );
+	/* Save segment ID for removal later */
+	remove_id = shm_id;
 
 	return return_ptr;
 }
 
-/* FIXME */
+/*
+ * Set up signal handlers.
+ */
 void set_signal_handlers() {
 	/* Signal handlers */
 	struct sigaction sa;
@@ -163,7 +188,7 @@ void set_signal_handlers() {
 static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
 	/* Shut down others */
 	if ( signum == SIGINT ) {
-		printf( "\nSignalling other to shut down\n" );
+		printf( "\nSignalling others to shut down\n" );
 		for ( int i = 1; i < NUM_READERS + 1; i++ ) {
 			kill( shm_pids[i], SIGUSR1 );
 		}
@@ -189,23 +214,50 @@ static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
  * Detaches from all shared memory segments.
  */
 void detach_shared() {
-	/* Detach from shared memory segment for message */
-	if ( shmdt( shm_message ) == -1 ) {
-		perror( "Shared memory segment message detach failure\n" );
-	}
-	
-	/* Detach from shared memory segment for flags */
-	if ( shmdt( shm_flags ) == -1 ) {
-		perror( "Shared memory segment flags detach failure\n" );
-	}
-
-	/* Detach from shared memory segment for pids */
-	if ( shmdt( shm_pids ) == -1 ) {
-		perror( "Shared memory segment pids detach failure\n" );
-	}
-
 	/* Detach from shared memory segment for segments */
 	if ( shmdt( shm_segment ) == -1 ) {
 		perror( "Shared memory segment segment detach failure\n" );
+	}
+
+	/* Set memory to be removed upon program termination */
+	shmctl( remove_id, IPC_RMID, (struct shmid_ds *)NULL );
+}
+
+/*
+ * continually reads user input and sends message to readers.
+ */
+void message() {
+	char* input;
+	int all_read;
+
+	/* Run until shutdown */
+	while ( 1 ) {
+		/* Get user input */
+		input = (char *)malloc( MAX_CHARS * sizeof( char * ) );
+		printf( ">" );
+		fgets( input, MAX_CHARS, stdin );
+
+		/* Trim \n off input */
+		int i = 0;
+		while ( input[i++] != '\n' );
+		input[i - 1] = '\0';
+
+		/* Wait until previous message read by all readers */
+		/* Reset not_read */
+		all_read = 0;
+		while ( !all_read ) {
+			all_read = 1;
+			for ( i = 0; i < NUM_READERS; i++ ) {
+				all_read = all_read & shm_flags[i];
+			}
+		}
+
+		/* Write message to shared memory segment */
+		strcpy( shm_message, input );
+
+		/* Set reader flags */
+		for ( i = 0; i < NUM_READERS; i++ ) {
+			shm_flags[i] = 0;
+		}
 	}
 }
