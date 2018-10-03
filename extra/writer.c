@@ -76,6 +76,13 @@ int main() {
 		shm_flags[i] = 1;
 	}
 
+	/* Start thread to listen for messages */
+	pthread_t thread;
+	if ( pthread_create( &thread, NULL, read_messages, NULL ) ) {
+		perror( "Thread creation error" );
+		exit( 1 );
+	}
+
 	/* Sending message to readers */
 	message();
 
@@ -103,6 +110,20 @@ void set_shm_segment() {
 }
 
 /*
+ * Gets the number of this reader from the user.
+ */
+void get_number() {
+	/* Get reader number from user */
+	char input[16];
+	while ( 0 > reader_num || reader_num > NUM_READERS - 1 ) {
+		printf( "Enter reader number (0 - %d): ", NUM_MEMBERS - 1 );
+		fgets( input, 16, stdin );
+		reader_num = atoi( input );
+	}
+}
+
+
+/*
  * Allocates a shared memory segment of the specified size in bytes.
  * @param size Number of bytes to allocate of shared memory.
  * @param key Key identifier of the shared memory segment.
@@ -120,13 +141,13 @@ void* malloc_shared( int size, key_t key ) {
 		perror( "Shared memory allocation failure" );
 		exit( 1 );
 	}
-	printf( "Created shared memory segment ID: %d\n", shm_id );
 
 	/* Attach to the shared memory segment */
 	if ( ( return_ptr = (void*)shmat( shm_id, NULL, 0 ) ) == (void*)-1 ) {
 		perror( "Shared memory attach failure" );
 		exit( 1 );
 	}
+	printf( "Attached to shared memory segment ID: %d\n", shm_id );
 
 	/* Save segment ID for removal later */
 	remove_id = shm_id;
@@ -242,18 +263,20 @@ void message() {
 	}
 }
 
-
+/*
+ * Reads message from others.
+ */
 void read_messages() {
 	/* Run until shut down */
 	while ( 1 ) {
 
 		/* Wait for message */
-		while ( shm_flags[reader_num - 1] );
+		while ( shm_flags[reader_num] );
 
 		/* Read message */
 		printf( "%s\n", shm_message );
 
 		/* Set flag indicating message read */
-		shm_flags[reader_num - 1] = 1;
+		shm_flags[reader_num] = 1;
 	}
 }

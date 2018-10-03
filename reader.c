@@ -121,7 +121,6 @@ void get_number() {
 	}
 }
 
-
 /*
  * Set up signal handlers.
  */
