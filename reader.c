@@ -7,7 +7,6 @@
 
 #define MAX_CHARS 4096
 #define NUM_READERS 2
-#define NUM_SEGMENTS 3
 #define PATH "./writer.c"
 #define PROJ_ID 1
 

@@ -8,8 +8,7 @@
 #include <unistd.h>
 
 #define MAX_CHARS 4096
-#define NUM_MEMBERS 2
-#define NUM_SEGMENTS 3
+#define NUM_MEMBERS 3
 #define PATH "./writer.c"
 #define PROJ_ID 1
 
