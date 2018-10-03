@@ -20,7 +20,6 @@
  */
 
 /* Prototypes */
-void new_shm();
 void set_shm_segment();
 void get_number();
 void set_signal_handlers();
@@ -48,15 +47,15 @@ pid_t* shm_pids;
 /* Number of this reader */
 int reader_num = -1;
 
-/* FIXME */
+/*
+ * Listens for messages from writer.
+ */
 int main() {
 	/* Set size of shared memory segment */
 	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_READERS * sizeof( int ) ) + ( (NUM_READERS + 1) * sizeof( pid_t ) );
 
 	/* Set up shared memory segment */
 	set_shm_segment();
-	
-	//new_shm();
 
 	/* Get reader number */
 	get_number();
@@ -71,33 +70,12 @@ int main() {
 	read_messages();
 }
 
-void new_shm() {
-	key_t key = ftok( PATH, PROJ_ID );
-	int shm_id;
-
-	if ( (shm_id = shmget(key, 4096, S_IRUSR | S_IWUSR)) < 0 ) {
-		perror("1\n");
-		exit(1);
-	}
-
-	if ( (shm_segment = shmat(shm_id,0,0)) == (void*)-1 ) {
-		perror("2\n");
-		exit(1);
-	}
-
-	sleep(10);
-
-	printf("%s\n", shm_segment);
-
-	shmdt(shm_segment);
-}
-
-/* FIXME */
+/*
+ * Attaches to a shared memory segment to read messages and flags from.
+ */
 void set_shm_segment() {
 	/* Create shared memory segment ID */
 	key_t key = ftok( PATH, PROJ_ID );
-	//FIXME
-	printf("%d\n", key);
 
 	/* Memory segment ID */
 	int shm_id;
@@ -144,7 +122,9 @@ void get_number() {
 }
 
 
-/* FIXME */
+/*
+ * Set up signal handlers.
+ */
 void set_signal_handlers() {
 	/* Signal handlers */
 	struct sigaction sa;

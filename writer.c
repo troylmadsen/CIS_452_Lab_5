@@ -5,8 +5,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <string.h>
-
 #define MAX_CHARS 4096
 #define NUM_READERS 2
 #define NUM_SEGMENTS 3
@@ -22,7 +20,6 @@
  */
 
 /* Prototypes */
-void new_shm();
 void set_shm_segment();
 void* malloc_shared( int size, key_t key );
 void set_signal_handlers();
@@ -49,7 +46,7 @@ int* shm_flags;
 pid_t* shm_pids;
 
 /*
- * Creates a shared memory segment to store message and reads input.
+ * Sends messages to listening readers.
  */
 int main() {
 	/* Set size of shared memory segment */
@@ -57,8 +54,6 @@ int main() {
 
 	/* Set up shared memory segment */
 	set_shm_segment();
-	
-	//new_shm();
 
 	/* Store my PID for others */
 	shm_pids[0] = getpid();
@@ -77,40 +72,12 @@ int main() {
 	return 0;
 }
 
-void new_shm() {
-	key_t key = ftok( PATH, PROJ_ID );
-	int shm_id;
-
-	if ( (shm_id = shmget(key, 4096, IPC_CREAT | S_IRUSR | S_IWUSR)) < 0 ) {
-		perror("1\n");
-		exit(1);
-	}
-
-	if ( (shm_segment = shmat(shm_id,0,0)) == (void*)-1 ) {
-		perror("2\n");
-		exit(1);
-	}
-
-	sleep(5);
-
-	/* Set memory to be removed upon program termination */
-	shmctl( shm_id, IPC_RMID, NULL );
-
-	memcpy(shm_segment, "Hello World", 11);
-
-	sleep(10);
-
-	shmdt(shm_segment);
-}
-
 /*
  * Creates a shared memory segment and additional segments for all processes to communicate.
  */
 void set_shm_segment() {
 	/* Create similar key between processes */
 	key_t key = ftok( PATH, PROJ_ID );
-	//FIXME
-	printf("%d\n", key);
 
 	/* Allocate shared memory segment for communication */
 	shm_segment = (char*)malloc_shared( shm_size, key );
