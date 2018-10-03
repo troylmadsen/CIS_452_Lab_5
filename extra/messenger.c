@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -28,7 +29,7 @@ void set_signal_handlers();
 static void sig_handler( int signum, siginfo_t* siginfo, void* context );
 void detach_shared();
 void message();
-void read_messages();
+void* read_messages();
 
 /* Globals */
 
@@ -78,7 +79,7 @@ int main() {
 
 	/* Start thread to listen for messages */
 	pthread_t thread;
-	if ( pthread_create( &thread, NULL, read_messages, NULL ) ) {
+	if ( pthread_create( &thread, NULL, &read_messages, NULL ) ) {
 		perror( "Thread creation error" );
 		exit( 1 );
 	}
@@ -115,7 +116,7 @@ void set_shm_segment() {
 void get_number() {
 	/* Get reader number from user */
 	char input[16];
-	while ( 0 > reader_num || reader_num > NUM_READERS - 1 ) {
+	while ( 0 > reader_num || reader_num > NUM_MEMBERS - 1 ) {
 		printf( "Enter reader number (0 - %d): ", NUM_MEMBERS - 1 );
 		fgets( input, 16, stdin );
 		reader_num = atoi( input );
@@ -266,7 +267,7 @@ void message() {
 /*
  * Reads message from others.
  */
-void read_messages() {
+void* read_messages() {
 	/* Run until shut down */
 	while ( 1 ) {
 
