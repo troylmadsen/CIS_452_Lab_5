@@ -56,7 +56,7 @@ int reader_num = -1;
  */
 int main() {
 	/* Set size of shared memory segment */
-	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_MEMBERS * sizeof( int ) ) + ( (NUM_MEMBERS + 1) * sizeof( pid_t ) );
+	shm_size = ( MAX_CHARS * sizeof( char ) ) + ( NUM_MEMBERS * sizeof( int ) ) + ( (NUM_MEMBERS) * sizeof( pid_t ) );
 
 	/* Get reader number */
 	get_number();
@@ -65,16 +65,13 @@ int main() {
 	set_shm_segment();
 
 	/* Store my PID for others */
-	shm_pids[0] = getpid();
+	shm_pids[reader_num] = getpid();
 
 	/* Set up signal handlers */
 	set_signal_handlers();
 
-	//FIXME
-	/* Set read flags */
-	for ( int i = 0; i < NUM_MEMBERS; i++ ) {
-		shm_flags[i] = 1;
-	}
+	/* Set own read flag */
+	shm_flags[reader_num] = 1;
 
 	/* Start thread to listen for messages */
 	pthread_t thread;
@@ -187,7 +184,7 @@ static void sig_handler( int signum, siginfo_t* siginfo, void* context ) {
 	/* Shut down others */
 	if ( signum == SIGINT ) {
 		printf( "\nSignalling others to shut down\n" );
-		for ( int i = 0; i < NUM_MEMBERS + 1; i++ ) {
+		for ( int i = 0; i < NUM_MEMBERS; i++ ) {
 			if ( i != reader_num ) {
 				kill( shm_pids[i], SIGUSR1 );
 			}
@@ -234,8 +231,8 @@ void message() {
 	/* Run until shutdown */
 	while ( 1 ) {
 		/* Get user input */
-		input = (char *)malloc( MAX_CHARS * sizeof( char * ) );
-		printf( ">" );
+		input = (char *)malloc( (MAX_CHARS - 16 ) * sizeof( char * ) );
+		printf( "> " );
 		fgets( input, MAX_CHARS, stdin );
 
 		/* Trim \n off input */
@@ -243,7 +240,7 @@ void message() {
 		while ( input[i++] != '\n' );
 		input[i - 1] = '\0';
 
-		/* Wait until previous message read by all readers */
+		/* Wait until previous message read by all others */
 		/* Reset not_read */
 		all_read = 0;
 		while ( !all_read ) {
@@ -254,11 +251,13 @@ void message() {
 		}
 
 		/* Write message to shared memory segment */
-		strcpy( shm_message, input );
+		sprintf( shm_message, "%d: %s", reader_num, input );
 
 		/* Set reader flags */
 		for ( i = 0; i < NUM_MEMBERS; i++ ) {
-			shm_flags[i] = 0;
+			if ( i != reader_num ) {
+				shm_flags[i] = 0;
+			}
 		}
 	}
 }
@@ -275,6 +274,10 @@ void* read_messages() {
 
 		/* Read message */
 		printf( "%s\n", shm_message );
+
+		/* Redisplay input prompt */
+		printf( "> " );
+		fflush( stdout );
 
 		/* Set flag indicating message read */
 		shm_flags[reader_num] = 1;
